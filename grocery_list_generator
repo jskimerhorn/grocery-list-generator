@@ -1,14 +1,18 @@
 from PyQt5 import QtWidgets, QtGui, QtCore
+import pickle
+import os
 
 class GroceryListWindow(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
+        
         
         self.initUI()
     
     def initUI(self):
         self.setWindowTitle("Grocery List Generator")
         self.setWindowIcon(QtGui.QIcon("icon.png"))
+        
         
         self.groceries = {
             "Monday": [],
@@ -32,6 +36,10 @@ class GroceryListWindow(QtWidgets.QWidget):
         self.item_edit.returnPressed.connect(self.add_item)
         
         self.item_list = QtWidgets.QListWidget(self)
+        self.item_list.installEventFilter(self)
+        self.item_list.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
+        self.item_list.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.item_list.customContextMenuRequested.connect(self.show_context_menu)
         self.update_item_list()
         
         self.add_button = QtWidgets.QPushButton("Add", self)
@@ -43,6 +51,12 @@ class GroceryListWindow(QtWidgets.QWidget):
         self.generate_button = QtWidgets.QPushButton("Generate Final List", self)
         self.generate_button.clicked.connect(self.generate_final_list)
         
+        self.save_button = QtWidgets.QPushButton("Save", self)
+        self.save_button.clicked.connect(self.save_groceries)
+        
+        self.load_button = QtWidgets.QPushButton("Load", self)
+        self.load_button.clicked.connect(self.load_groceries)
+        
         day_layout = QtWidgets.QHBoxLayout()
         day_layout.addWidget(QtWidgets.QLabel("Day:", self))
         day_layout.addWidget(self.day_combo)
@@ -50,10 +64,13 @@ class GroceryListWindow(QtWidgets.QWidget):
         item_layout = QtWidgets.QHBoxLayout()
         item_layout.addWidget(QtWidgets.QLabel("Item:", self))
         item_layout.addWidget(self.item_edit)
-        
+        item_layout.addStretch(1)
+
         button_layout = QtWidgets.QHBoxLayout()
         button_layout.addWidget(self.add_button)
         button_layout.addWidget(self.remove_button)
+        button_layout.addWidget(self.save_button)
+        button_layout.addWidget(self.load_button)
         button_layout.addWidget(self.generate_button)
         
         layout = QtWidgets.QVBoxLayout()
@@ -92,16 +109,19 @@ class GroceryListWindow(QtWidgets.QWidget):
         self.update_item_list()
     
     def add_item(self):
-        item = self.item_edit.text()
-        if item:
-            self.groceries[self.current_day].append(item)
-            self.item_edit.clear()
-            self.update_item_list()
+        items = self.item_edit.text().split(",")
+        for item in items:
+            item = item.strip()
+            if item:
+               self.groceries[self.current_day].append(item)
+        self.item_edit.clear()
+        self.update_item_list()
     
     def remove_item(self):
-        item = self.item_list.currentItem()
-        if item:
-            self.groceries[self.current_day].remove(item.text())
+        items = self.item_list.selectedItems()
+        if items:
+            for item in items:
+                self.groceries[self.current_day].remove(item.text())
             self.update_item_list()
     
     def generate_final_list(self):
@@ -129,6 +149,68 @@ class GroceryListWindow(QtWidgets.QWidget):
         if all_items:
             clipboard = QtWidgets.QApplication.clipboard()
             clipboard.setText("\n".join(all_items))
+    
+    def save_groceries(self):
+        file_name, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save Groceries", "", "Pickle Files (*.pkl)")
+        if file_name:
+            with open(file_name, "wb") as f:
+                pickle.dump(self.groceries, f)
+    
+    def load_groceries(self):
+        file_name, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Load Groceries", "", "Pickle Files (*.pkl)")
+        if file_name:
+            with open(file_name, "rb") as f:
+                self.groceries = pickle.load(f)
+            self.update_item_list()
+            
+    def show_context_menu(self, pos):
+        menu = QtWidgets.QMenu(self)
+        clear_action = menu.addAction("Clear day")
+        clear_action.triggered.connect(self.clear_day)
+        copy_action = menu.addAction("Copy with commas")
+        copy_action.triggered.connect(self.copy_selected_items)
+        copy_regular_action = menu.addAction("Copy without commas")
+        copy_regular_action.triggered.connect(self.copy_selected_items_regularly)
+        menu.exec_(self.item_list.mapToGlobal(pos))
+    
+    def clear_day(self):
+        self.groceries[self.current_day] = []
+        self.update_item_list()
+    
+    def copy_selected_items(self):
+        selected_items = [item.text() for item in self.item_list.selectedItems()]
+        if selected_items:
+            clipboard = QtWidgets.QApplication.clipboard()
+            clipboard.setText(", ".join(selected_items))
+    
+    def copy_selected_items_regularly(self):
+        selected_items = [item.text() for item in self.item_list.selectedItems()]
+        if selected_items:
+            clipboard = QtWidgets.QApplication.clipboard()
+            clipboard.setText("\n".join(selected_items))
+            
+    def eventFilter(self, source, event):
+        if (event.type() == QtCore.QEvent.KeyPress and
+            source is self.item_list and
+            self.item_list.hasFocus()):
+            if event.key() in [QtCore.Qt.Key_Backspace, QtCore.Qt.Key_Delete]:
+                for item in self.item_list.selectedItems():
+                    self.groceries[self.current_day].remove(item.text())
+                self.update_item_list()
+                return True
+            elif event.key() == QtCore.Qt.Key_V and (event.modifiers() & QtCore.Qt.ControlModifier):
+                clipboard = QtWidgets.QApplication.clipboard()
+                items = clipboard.text().split("\n")
+                self.groceries[self.current_day].extend(items)
+                self.update_item_list()
+                return True
+            elif event.key() == QtCore.Qt.Key_C and (event.modifiers() & QtCore.Qt.ControlModifier):
+                selected_items = [item.text() for item in self.item_list.selectedItems()]
+                if selected_items:
+                    clipboard = QtWidgets.QApplication.clipboard()
+                    clipboard.setText("\n".join(selected_items))
+                return True
+        return super().eventFilter(source, event)        
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication([])
