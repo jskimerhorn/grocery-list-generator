@@ -95,6 +95,9 @@ class GroceryListWindow(QtWidgets.QWidget):
             if day in ["Pantry", "General"]:
                 continue
             for item in items:
+                if not item:
+                    # ignore blank items
+                    continue
                 if item in grocery_list:
                     grocery_list[item] += 1
                 else:
@@ -147,7 +150,9 @@ class GroceryListWindow(QtWidgets.QWidget):
         for item in items:
             item = item.strip()
             if item:
-               self.groceries[self.current_day].append(item)
+                self.groceries[self.current_day].append(item)
+            else:
+                self.groceries[self.current_day].append("")
         self.item_edit.clear()
         self.update_item_list()
     
@@ -184,10 +189,25 @@ class GroceryListWindow(QtWidgets.QWidget):
                 self.groceries = pickle.load(f)
             self.update_item_list()
             
+    def add_blank_line(self):
+        self.groceries[self.current_day].append("")
+        self.update_item_list() 
+        
+    def keyPressEvent(self, event):
+        if event.key() == QtCore.Qt.Key_C and event.modifiers() == QtCore.Qt.ControlModifier:
+            self.copy_selected_items()
+        elif event.key() == QtCore.Qt.Key_V and event.modifiers() == QtCore.Qt.ControlModifier:
+            self.paste_items()
+        elif event.key() in [QtCore.Qt.Key_Delete, QtCore.Qt.Key_Backspace]:
+            self.remove_item()    
+        else:
+            super().keyPressEvent(event)        
+            
     def show_context_menu(self, pos):
         menu = QtWidgets.QMenu(self)
-        clear_action = menu.addAction("Clear day")
-        clear_action.triggered.connect(self.clear_day)
+
+        cut_action = menu.addAction("Cut")
+        cut_action.triggered.connect(self.cut_selected_items)
         copy_regular_action = menu.addAction("Copy selection")
         copy_regular_action.triggered.connect(self.copy_selected_items_regularly)        
         copy_action = menu.addAction("Copy selection as list")
@@ -196,10 +216,37 @@ class GroceryListWindow(QtWidgets.QWidget):
         paste_action.triggered.connect(self.paste_items)
         paste_week_action = menu.addAction("Paste entire Week")
         paste_week_action.triggered.connect(self.show_week_preview)
+        clear_action = menu.addAction("Clear day")
+        clear_action.triggered.connect(self.clear_day)
         copy_list_text_action = menu.addAction("Export entire list as text")
         copy_list_text_action.triggered.connect(self.copy_list_as_text)
+        add_to_pantry_action = menu.addAction("Add to Pantry")
+        add_to_pantry_action.triggered.connect(self.add_selected_to_pantry)
+        remove_pantry_action = menu.addAction("Remove from Pantry")
+        remove_pantry_action.triggered.connect(self.remove_selected_from_pantry)
+        blank_line_action = menu.addAction("Add blank line")
+        blank_line_action.triggered.connect(self.add_blank_line)
+        
+
         menu.exec_(self.item_list.mapToGlobal(pos))
         
+    def cut_selected_items(self):
+        self.copy_selected_items()
+        self.remove_item()
+        
+    def remove_selected_from_pantry(self):
+        selected_items = [item.text() for item in self.item_list.selectedItems()]
+        pantry_list = self.groceries.get("Pantry", [])
+        for item in selected_items:
+            if item in pantry_list:
+                pantry_list.remove(item)
+        self.groceries["Pantry"] = pantry_list
+        self.update_item_list()    
+        
+    def add_selected_to_pantry(self):
+        items = [item.text() for item in self.item_list.selectedItems()]
+        if items:
+            self.groceries["Pantry"].extend(items)    
         
     def generate_text_from_list(self):
         text = []

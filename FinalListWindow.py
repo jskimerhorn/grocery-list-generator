@@ -6,7 +6,7 @@ class FinalListWindow(QtWidgets.QWidget):
         self.text_edit = QtWidgets.QTextEdit()
         grocery_text = "\n".join(grocery_list)
         general_text = "\n".join(general_list)
-        text = "# Items on List\n" + grocery_text + "\n\n# General items\n" + general_text
+        text = "Items on List\n" + grocery_text + "\n\nGeneral items\n" + general_text
         self.text_edit.setText(text)
         self.text_edit.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         self.text_edit.customContextMenuRequested.connect(self.show_context_menu)
