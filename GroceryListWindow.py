@@ -188,15 +188,31 @@ class GroceryListWindow(QtWidgets.QWidget):
         menu = QtWidgets.QMenu(self)
         clear_action = menu.addAction("Clear day")
         clear_action.triggered.connect(self.clear_day)
-        copy_action = menu.addAction("Copy as list")
+        copy_regular_action = menu.addAction("Copy selection")
+        copy_regular_action.triggered.connect(self.copy_selected_items_regularly)        
+        copy_action = menu.addAction("Copy selection as list")
         copy_action.triggered.connect(self.copy_selected_items)
-        copy_regular_action = menu.addAction("Copy")
-        copy_regular_action.triggered.connect(self.copy_selected_items_regularly)
-        paste_action = menu.addAction("Paste")
+        paste_action = menu.addAction("Paste selection")
         paste_action.triggered.connect(self.paste_items)
-        paste_week_action = menu.addAction("Paste Week")
+        paste_week_action = menu.addAction("Paste entire Week")
         paste_week_action.triggered.connect(self.show_week_preview)
+        copy_list_text_action = menu.addAction("Export entire list as text")
+        copy_list_text_action.triggered.connect(self.copy_list_as_text)
         menu.exec_(self.item_list.mapToGlobal(pos))
+        
+        
+    def generate_text_from_list(self):
+        text = []
+        for day, items in self.groceries.items():
+            items_text = ", ".join(items)
+            text.append(f'"{day}": [{items_text}]')
+        return "\n".join(text)
+
+    def copy_list_as_text(self):
+        text = self.generate_text_from_list()
+        clipboard = QtWidgets.QApplication.clipboard()
+        clipboard.setText(text)
+        
     
     def clear_day(self):
         self.groceries[self.current_day] = []
