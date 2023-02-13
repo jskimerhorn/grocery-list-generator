@@ -88,43 +88,51 @@ class GroceryListWindow(QtWidgets.QWidget):
         
         self.setLayout(layout)
     
+
     def generate_grocery_list(self):
-        final_list = {}
+        grocery_list = {}
         for day, items in self.groceries.items():
+            if day in ["Pantry", "General"]:
+                continue
             for item in items:
-                if item in final_list:
-                    final_list[item] += 1
+                if item in grocery_list:
+                    grocery_list[item] += 1
                 else:
-                    final_list[item] = 1
+                    grocery_list[item] = 1
+
+        pantry_list = self.groceries.get("Pantry", [])
+        for item in pantry_list:
+            if item in grocery_list:
+                grocery_list[item] -= 1
+                if grocery_list[item] == 0:
+                    grocery_list.pop(item)
+
+        grocery_result = []
+        for item, count in grocery_list.items():
+            if count > 0:
+                if count > 1:
+                    grocery_result.append(f"{item} ({count}x)")
+                else:
+                    grocery_result.append(item)
 
         general_list = self.groceries.get("General", [])
-        pantry_list = self.groceries.get("Pantry", [])
-
-        for item in pantry_list:
-            if item in final_list:
-                final_list[item] -= 1
-                if final_list[item] == 0:
-                    final_list.pop(item)
-
+        general_count = {}
         for item in general_list:
-            if item in final_list:
-                final_list[item] += 1
+            if item in general_count:
+                general_count[item] += 1
             else:
-                final_list[item] = 1
-
-        result = []
-        for item, count in final_list.items():
-            if count > 1:
-                result.append(f"{item} ({count}x)")
-            else:
-                result.append(item)
+                general_count[item] = 1
 
         general_result = []
-        for item in general_list:
-            general_result.append(item)
+        for item, count in general_count.items():
+            if count > 0:
+                if count > 1:
+                    general_result.append(f"{item} ({count}x)")
+                else:
+                    general_result.append(item)
 
-        return result, general_result
-    
+        return grocery_result, general_result
+        
     def update_item_list(self):
         items = self.groceries[self.current_day]
         self.item_list.clear()
@@ -151,9 +159,8 @@ class GroceryListWindow(QtWidgets.QWidget):
             self.update_item_list()
     
     def generate_final_list(self):
-        final_list = self.generate_grocery_list()
-        final_list = [item for sublist in final_list for item in sublist]
-        self.list_window = FinalListWindow.FinalListWindow(final_list, parent=self)
+        grocery_list, general_list = self.generate_grocery_list()
+        self.list_window = FinalListWindow.FinalListWindow(grocery_list, general_list, parent=self)
         self.list_window.show()
      
    
