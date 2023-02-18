@@ -375,25 +375,34 @@ class RecipeDatabaseWindow(QtWidgets.QWidget):
         layout.addWidget(self.recipe_list)
 
         # Create a horizontal layout for the buttons
-        buttons_layout = QtWidgets.QHBoxLayout()
+        buttons_layout_1 = QtWidgets.QHBoxLayout()
+        buttons_layout_2 = QtWidgets.QHBoxLayout()
 
         # Add the Import button
         self.import_button = QtWidgets.QPushButton("Import", self)
         self.import_button.clicked.connect(self.add_recipe)
-        buttons_layout.addWidget(self.import_button)
+        buttons_layout_1.addWidget(self.import_button)
         
          # Add the Delete button
         self.delete_button = QtWidgets.QPushButton("Delete", self)
         self.delete_button.clicked.connect(self.delete_recipe)
-        buttons_layout.addWidget(self.delete_button)
+        buttons_layout_2.addWidget(self.delete_button)
         
         # Add the Export button
         self.export_button = QtWidgets.QPushButton("Export", self)
         self.export_button.clicked.connect(self.export_recipe)
-        buttons_layout.addWidget(self.export_button)
+        buttons_layout_1.addWidget(self.export_button)
+
+        #add the edit button
+        self.edit_button = QtWidgets.QPushButton("Edit", self)
+        self.edit_button.clicked.connect(self.edit_recipe)
+        buttons_layout_2.addWidget(self.edit_button)
+
 
         # Add the buttons layout to the main layout
-        layout.addLayout(buttons_layout)
+        layout.addLayout(buttons_layout_1)
+        layout.addLayout(buttons_layout_2)
+
 
         self.setLayout(layout)
         self.setWindowFlags(QtCore.Qt.Window)
@@ -429,11 +438,28 @@ class RecipeDatabaseWindow(QtWidgets.QWidget):
             self.recipe_list.addItems(titles)
             
     def get_recipe_titles(self, recipes_db):
+        # Connect to the SQLite database
         conn = sqlite3.connect(recipes_db)
         c = conn.cursor()
+
+        # Check if the recipes table exists
+        c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='recipes'")
+        result = c.fetchone()
+
+        if not result:
+            # If the recipes table does not exist, create it
+            c.execute("CREATE TABLE recipes (id INTEGER PRIMARY KEY, title TEXT, ingredients TEXT)")
+            conn.commit()
+
+        # Get the recipe titles from the database
         c.execute("SELECT title FROM recipes")
-        titles = [row[0] for row in c.fetchall()]
+        titles = c.fetchall()
+
+        # Close the database connection
         conn.close()
+
+        # Convert the list of tuples to a list of strings
+        titles = [title[0] for title in titles]
         return titles
         
     def export_recipe(self):
@@ -450,6 +476,28 @@ class RecipeDatabaseWindow(QtWidgets.QWidget):
                 self.grocery_list_window.groceries[self.grocery_list_window.current_day].append(ingredient)
             self.grocery_list_window.groceries[self.grocery_list_window.current_day].append("\n")
             self.grocery_list_window.update_item_list()
+
+    def edit_recipe(self):
+        selected = self.recipe_list.selectedItems()
+        if selected:
+            selected_item = selected[0]
+            title = selected_item.text()
+            ingredients = self.get_ingredients(title)
+            dialog = AddRecipeDialog(self)
+            dialog.title_input.setText(title)
+            dialog.ingredients_input.setText(ingredients)
+            result = dialog.exec_()
+            if result == QtWidgets.QDialog.Accepted:
+                new_title = dialog.title_input.text()
+                new_ingredients = dialog.ingredients_input.text()
+                conn = sqlite3.connect("recipes.db")
+                c = conn.cursor()
+                c.execute("UPDATE recipes SET title=?, ingredients=? WHERE title=?", (new_title, new_ingredients, title))
+                conn.commit()
+                conn.close()
+                titles = self.get_recipe_titles("recipes.db")
+                self.recipe_list.clear()
+                self.recipe_list.addItems(titles)
             
     
 
