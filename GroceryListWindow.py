@@ -1,10 +1,12 @@
 import sys
 import pickle
+import ast
 from PyQt5 import QtWidgets, QtGui, QtCore
 import FinalListWindow
-import GroceriesPreviewWindow
 from PyQt5.QtWidgets import QApplication
+import GroceriesPreviewWindow
 from GroceriesPreviewWindow import GroceriesPreviewWindow
+import sqlite3
 
 
 class GroceryListWindow(QtWidgets.QWidget):
@@ -64,6 +66,9 @@ class GroceryListWindow(QtWidgets.QWidget):
         self.load_button = QtWidgets.QPushButton("Load", self)
         self.load_button.clicked.connect(self.load_groceries)
         
+        self.recipes_button = QtWidgets.QPushButton("Recipes", self)
+        self.recipes_button.clicked.connect(self.open_recipe_database)
+        
         day_layout = QtWidgets.QHBoxLayout()
         day_layout.addWidget(QtWidgets.QLabel("Day:", self))
         day_layout.addWidget(self.day_combo)
@@ -72,6 +77,7 @@ class GroceryListWindow(QtWidgets.QWidget):
         item_layout.addWidget(QtWidgets.QLabel("Item:", self))
         item_layout.addWidget(self.item_edit)
         item_layout.addStretch(1)
+        item_layout.addWidget((self.recipes_button))
 
         button_layout = QtWidgets.QHBoxLayout()
         button_layout.addWidget(self.add_button)
@@ -95,8 +101,8 @@ class GroceryListWindow(QtWidgets.QWidget):
             if day in ["Pantry", "General"]:
                 continue
             for item in items:
-                if not item:
-                    # ignore blank items
+                if item == "\n":
+                    # ignore newline characters
                     continue
                 if item in grocery_list:
                     grocery_list[item] += 1
@@ -133,7 +139,7 @@ class GroceryListWindow(QtWidgets.QWidget):
                     general_result.append(f"{item} ({count}x)")
                 else:
                     general_result.append(item)
-
+                    
         return grocery_result, general_result
         
     def update_item_list(self):
@@ -152,7 +158,7 @@ class GroceryListWindow(QtWidgets.QWidget):
             if item:
                 self.groceries[self.current_day].append(item)
             else:
-                self.groceries[self.current_day].append("")
+                self.groceries[self.current_day].append("\n")
         self.item_edit.clear()
         self.update_item_list()
     
@@ -160,7 +166,8 @@ class GroceryListWindow(QtWidgets.QWidget):
         items = self.item_list.selectedItems()
         if items:
             for item in items:
-                self.groceries[self.current_day].remove(item.text())
+                row = self.item_list.row(item)
+                self.groceries[self.current_day].pop(row)
             self.update_item_list()
     
     def generate_final_list(self):
@@ -190,7 +197,7 @@ class GroceryListWindow(QtWidgets.QWidget):
             self.update_item_list()
             
     def add_blank_line(self):
-        self.groceries[self.current_day].append("")
+        self.groceries[self.current_day].append("\n")
         self.update_item_list() 
         
     def keyPressEvent(self, event):
@@ -226,6 +233,8 @@ class GroceryListWindow(QtWidgets.QWidget):
         remove_pantry_action.triggered.connect(self.remove_selected_from_pantry)
         blank_line_action = menu.addAction("Add blank line")
         blank_line_action.triggered.connect(self.add_blank_line)
+        add_heading_action = menu.addAction("Add Heading")
+        add_heading_action.triggered.connect(self.add_heading)
         
 
         menu.exec_(self.item_list.mapToGlobal(pos))
@@ -256,9 +265,11 @@ class GroceryListWindow(QtWidgets.QWidget):
         return "\n".join(text)
 
     def copy_list_as_text(self):
-        text = self.generate_text_from_list()
+        week_text = ""
+        for day, items in self.groceries.items():
+            week_text += f'{day}: [{", ".join(repr(item) for item in items)}],\n'
         clipboard = QtWidgets.QApplication.clipboard()
-        clipboard.setText(text)
+        clipboard.setText(week_text)
         
     
     def clear_day(self):
@@ -282,9 +293,30 @@ class GroceryListWindow(QtWidgets.QWidget):
         items = clipboard.text().split(",")
         items = [item.strip() for item in items]
         items = [item for sublist in [item.split("\n") for item in items] for item in sublist]
-        self.groceries[self.current_day].extend(items)
+        for item in items:
+            if item == '':
+                self.add_blank_line()
+            else:
+                self.groceries[self.current_day].append(item)
         self.update_item_list()  
-    
+
+    def add_heading(self):
+        heading, ok = QtWidgets.QInputDialog.getText(self, "Add Heading", "Enter Heading:")
+        if ok:
+            self.groceries[self.current_day].append(heading)
+            self.groceries["Pantry"].append(heading)
+            # Add a new line after the heading
+            self.groceries[self.current_day].append("\n")
+
+            self.update_item_list()
+            
+            
+    def add_recipe_heading(self, title):
+        self.groceries[self.current_day].append(title)
+        self.groceries["Pantry"].append(title)
+        # Add a new line after the heading
+        self.groceries[self.current_day].append("\n")
+            
     def parse_and_format_week_text(self):
         clipboard = QtWidgets.QApplication.clipboard()
         text = clipboard.text()
@@ -297,13 +329,13 @@ class GroceryListWindow(QtWidgets.QWidget):
                     line = line[:-1]
                 day, items = line.split(":")
                 day = day.strip().strip('"')
-                items = [item.strip().strip('"') for item in items.strip()[1:-1].split(", ")]
+                items = [ast.literal_eval(item.strip()) for item in items.strip()[1:-1].split(", ")]
                 week[day] = items
-            except ValueError:
-                # if the line cannot be split into two parts, skip it
+            except (ValueError, SyntaxError):
+                # if the line cannot be split into two parts or if the item is not a valid expression, skip it
                 continue
         return week
-
+        
     def show_week_preview(self):
         week = self.parse_and_format_week_text()
         updated_groceries = self.groceries.copy()
@@ -314,3 +346,184 @@ class GroceryListWindow(QtWidgets.QWidget):
                 updated_groceries[day] = items
         self.week_preview = GroceriesPreviewWindow(week, updated_groceries, self)
         self.week_preview.show() 
+        
+    def open_recipe_database(self):
+        RecipeDatabaseWindow.recipe_database_window = RecipeDatabaseWindow(self)
+        RecipeDatabaseWindow.recipe_database_window.show()
+
+class RecipeDatabaseWindow(QtWidgets.QWidget):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.grocery_list_window = parent
+        self.initUI()
+    
+    def initUI(self):
+        self.setWindowTitle("Recipe Database")
+        self.setWindowIcon(QtGui.QIcon("icon.png"))
+
+        # Create a layout for the recipe database window
+        layout = QtWidgets.QVBoxLayout()
+
+        # Add a label and a list widget to display the recipes
+        self.recipes_label = QtWidgets.QLabel("Recipes:", self)
+        layout.addWidget(self.recipes_label)
+
+        self.recipe_list = QtWidgets.QListWidget(self)
+        titles = self.get_recipe_titles("recipes.db")
+        for title in titles:
+            self.recipe_list.addItem(title)
+        layout.addWidget(self.recipe_list)
+
+        # Create a horizontal layout for the buttons
+        buttons_layout = QtWidgets.QHBoxLayout()
+
+        # Add the Import button
+        self.import_button = QtWidgets.QPushButton("Import", self)
+        self.import_button.clicked.connect(self.add_recipe)
+        buttons_layout.addWidget(self.import_button)
+        
+         # Add the Delete button
+        self.delete_button = QtWidgets.QPushButton("Delete", self)
+        self.delete_button.clicked.connect(self.delete_recipe)
+        buttons_layout.addWidget(self.delete_button)
+        
+        # Add the Export button
+        self.export_button = QtWidgets.QPushButton("Export", self)
+        self.export_button.clicked.connect(self.export_recipe)
+        buttons_layout.addWidget(self.export_button)
+
+        # Add the buttons layout to the main layout
+        layout.addLayout(buttons_layout)
+
+        self.setLayout(layout)
+        self.setWindowFlags(QtCore.Qt.Window)
+        
+    
+        
+    def add_recipe(self):
+        # Create the dialog
+        dialog = AddRecipeDialog(self)
+
+        # Show the dialog and wait for the user to accept or reject it
+        result = dialog.exec_()
+
+        # If the user accepted the dialog, insert the recipe into the database
+        if result == QtWidgets.QDialog.Accepted:
+            title = dialog.title_input.text()
+            ingredients = dialog.ingredients_input.text()
+
+            # Connect to the SQLite database
+            conn = sqlite3.connect("recipes.db")
+            c = conn.cursor()
+
+            # Insert the recipe data into the database
+            c.execute("INSERT INTO recipes (title, ingredients) VALUES (?, ?)", (title, ingredients))
+            conn.commit()
+
+            # Close the database connection
+            conn.close()
+
+            # Update the recipe list
+            titles = self.get_recipe_titles("recipes.db")
+            self.recipe_list.clear()
+            self.recipe_list.addItems(titles)
+            
+    def get_recipe_titles(self, recipes_db):
+        conn = sqlite3.connect(recipes_db)
+        c = conn.cursor()
+        c.execute("SELECT title FROM recipes")
+        titles = [row[0] for row in c.fetchall()]
+        conn.close()
+        return titles
+        
+    def export_recipe(self):
+        selected = self.recipe_list.selectedItems()
+        if selected:
+            selected_item = selected[0]
+            title = selected_item.text()
+            ingredients = self.get_ingredients(title)
+            self.grocery_list_window.groceries[self.grocery_list_window.current_day].append(title)
+            self.grocery_list_window.groceries["Pantry"].append(title)
+            # Add a new line after the heading
+            self.grocery_list_window.groceries[self.grocery_list_window.current_day].append("\n")
+            for ingredient in ingredients.split(','):
+                self.grocery_list_window.groceries[self.grocery_list_window.current_day].append(ingredient)
+            self.grocery_list_window.groceries[self.grocery_list_window.current_day].append("\n")
+            self.grocery_list_window.update_item_list()
+            
+    
+
+    def get_ingredients(self, title):
+        conn = sqlite3.connect("recipes.db")
+        c = conn.cursor()
+        c.execute("SELECT ingredients FROM recipes WHERE title=?", (title,))
+        ingredients = c.fetchone()[0]
+        conn.close()
+        return ingredients
+        
+    def delete_recipe(self):
+        # Get the currently selected recipe
+        selected = self.recipe_list.selectedItems()
+        if not selected:
+            # If no recipe is selected, do nothing
+            return
+
+        selected_item = selected[0]
+        title = selected_item.text()
+
+        # Show a confirmation dialog to confirm deletion
+        confirmation = QtWidgets.QMessageBox.question(
+            self, "Confirm Deletion",
+            f"Are you sure you want to delete the recipe \"{title}\"?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No
+        )
+
+        if confirmation == QtWidgets.QMessageBox.Yes:
+            # Connect to the SQLite database
+            conn = sqlite3.connect("recipes.db")
+            c = conn.cursor()
+
+            # Delete the selected recipe from the database
+            c.execute("DELETE FROM recipes WHERE title=?", (title,))
+            conn.commit()
+
+            # Close the database connection
+            conn.close()
+
+            # Update the recipe list
+            self.recipe_list.takeItem(self.recipe_list.row(selected_item))
+
+            # Clear the grocery list if the deleted recipe is in it
+            if title in self.grocery_list_window.groceries[self.grocery_list_window.current_day]:
+                self.grocery_list_window.groceries[self.grocery_list_window.current_day].remove(title)
+                self.grocery_list_window.update_item_list()
+
+
+        
+
+class AddRecipeDialog(QtWidgets.QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        # Create the title and ingredients inputs
+        self.title_input = QtWidgets.QLineEdit()
+        self.ingredients_input = QtWidgets.QLineEdit()
+
+        # Create the layout for the inputs
+        layout = QtWidgets.QVBoxLayout()
+        layout.addWidget(QtWidgets.QLabel("Title:"))
+        layout.addWidget(self.title_input)
+        layout.addWidget(QtWidgets.QLabel("Ingredients:"))
+        layout.addWidget(self.ingredients_input)
+
+        # Create the OK and Cancel buttons
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel, self)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        # Set the layout for the dialog
+        self.setLayout(layout)
+
+
